@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>FFT Signal Flow Graph Visualizer</title>
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --panel-bg: #151d30;
+            --card-bg: #1c2640;
+            --border-color: #2b395e;
+            --text-color: #e2e8f0;
+            --text-dim: #94a3b8;
+            --accent-color: #38bdf8;
+            --node-inactive: #222f4d;
+            --node-active: #22c55e;
+            --node-glow: rgba(34, 197, 94, 0.45);
+            --twiddle-color: #f472b6;
+            --line-default: #2b395e;
+            --line-active: #38bdf8;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Top Header */
+        header {
+            padding: 10px 16px;
+            background: var(--panel-bg);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+
+        .author-tag {
+            font-size: 0.8rem;
+            color: var(--accent-color);
+            font-weight: 700;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+        }
+
+        h1 {
+            font-size: 1.05rem;
+            color: #fff;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* Responsive Layout Container */
+        .main-wrapper {
+            display: flex;
+            flex: 1;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* Graph viewport (scrollable horizontally on phones) */
+        #graph-viewport {
+            flex: 1;
+            overflow-x: auto;
+            overflow-y: hidden;
+            background: radial-gradient(circle at center, #131b2e 0%, var(--bg-color) 100%);
+            position: relative;
+            touch-action: pan-x pan-y;
+            scrollbar-width: thin;
+        }
+
+        svg {
+            display: block;
+            min-width: 650px; /* guarantees graph stays legible on small phones */
+            height: 100%;
+        }
+
+        /* Controls Bottom Bar */
+        .controls-bar {
+            background: var(--panel-bg);
+            border-top: 1px solid var(--border-color);
+            padding: 10px 14px;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        button {
+            background-color: var(--card-bg);
+            color: #fff;
+            border: 1px solid var(--border-color);
+            padding: 12px 6px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+
+        button:active {
+            transform: scale(0.96);
+        }
+
+        button.primary {
+            background-color: #0284c7;
+            border-color: #38bdf8;
+        }
+
+        button.playing {
+            background-color: #dc2626 !important;
+            border-color: #f87171 !important;
+        }
+
+        /* Bottom Info Drawer */
+        .bottom-sheet {
+            background: var(--panel-bg);
+            border-top: 1px solid var(--border-color);
+            max-height: 140px;
+            min-height: 110px;
+            padding: 10px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            flex-shrink: 0;
+            overflow-y: auto;
+        }
+
+        .sheet-title {
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: var(--accent-color);
+            font-weight: bold;
+        }
+
+        .sheet-desc {
+            font-size: 0.82rem;
+            line-height: 1.35;
+            color: var(--text-dim);
+        }
+
+        .values-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+            gap: 4px;
+            font-family: monospace;
+            font-size: 0.72rem;
+            color: #bae6fd;
+            margin-top: 4px;
+        }
+
+        /* SVG Graph Classes */
+        .edge {
+            stroke: var(--line-default);
+            stroke-width: 2.2;
+            transition: stroke 0.4s ease, stroke-width 0.4s ease;
+        }
+
+        .edge.active {
+            stroke: var(--line-active);
+            stroke-width: 3.2;
+        }
+
+        .edge.neg {
+            stroke-dasharray: 4, 3;
+        }
+
+        .node {
+            fill: var(--node-inactive);
+            stroke: var(--border-color);
+            stroke-width: 2.5px;
+            transition: all 0.35s ease;
+        }
+
+        .node.active {
+            fill: var(--node-active);
+            stroke: #fff;
+            filter: drop-shadow(0 0 7px var(--node-glow));
+        }
+
+        .label {
+            fill: #94a3b8;
+            font-size: 11px;
+            font-weight: 600;
+            text-anchor: middle;
+            dominant-baseline: central;
+            font-family: monospace;
+            user-select: none;
+        }
+
+        .twiddle-text {
+            fill: var(--twiddle-color);
+            font-size: 10px;
+            font-family: monospace;
+            font-weight: 700;
+            user-select: none;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <!-- EDIT YOUR NAME HERE -->
+        <div class="author-tag">Project by: <span id="student-name">Chandan Katiyar</span></div>
+        <h1>8-Point Radix-2 DIT FFT Flow Graph</h1>
+    </header>
+
+    <div class="main-wrapper">
+        <div id="graph-viewport">
+            <svg id="fft-svg"></svg>
+        </div>
+
+        <div class="bottom-sheet">
+            <div class="sheet-title" id="stage-title">Stage 0 of 3</div>
+            <div class="sheet-desc" id="stage-desc">Bit-reversed order input vector.</div>
+            <div class="values-grid" id="values-container"></div>
+        </div>
+
+        <div class="controls-bar">
+            <button id="btn-prev">‹ Prev</button>
+            <button id="btn-play" class="primary">Play</button>
+            <button id="btn-next">Next ›</button>
+            <button id="btn-reset">Reset</button>
+        </div>
+    </div>
+
+    <script>
+        const N = 8;
+        const STAGES = 3;
+        
+        // Bit reversal indices for 8-point FFT: [0, 4, 2, 6, 1, 5, 3, 7]
+        const bitReversal = [0, 4, 2, 6, 1, 5, 3, 7];
+
+        // Complex math utility
+        class Complex {
+            constructor(re, im = 0) {
+                this.re = re;
+                this.im = im;
+            }
+            add(b) { return new Complex(this.re + b.re, this.im + b.im); }
+            sub(b) { return new Complex(this.re - b.re, this.im - b.im); }
+            mul(b) {
+                return new Complex(
+                    this.re * b.re - this.im * b.im,
+                    this.re * b.im + this.im * b.re
+                );
+            }
+            toString() {
+                const r = Math.abs(this.re) < 1e-4 ? "0" : this.re.toFixed(1);
+                const i = Math.abs(this.im) < 1e-4 ? "0" : Math.abs(this.im).toFixed(1);
+                if (i === "0") return `${r}`;
+                return `${r}${this.im < 0 ? '-' : '+'}j${i}`;
+            }
+        }
+
+        function twiddle(k, n) {
+            const angle = -2 * Math.PI * k / n;
+            return new Complex(Math.cos(angle), Math.sin(angle));
+        }
+
+        // Example pulse signal input: x[n] = [1, 1, 1, 1, 0, 0, 0, 0]
+        const rawInputs = [1, 1, 1, 1, 0, 0, 0, 0].map(v => new Complex(v));
+
+        // Precompute values at each stage
+        let stageData = [];
+        function precomputeFFT() {
+            stageData = [];
+            let current = bitReversal.map(i => rawInputs[i]);
+            stageData.push([...current]);
+
+            for (let s = 1; s <= STAGES; s++) {
+                const next = new Array(N);
+                const halfBlock = 1 << (s - 1);
+                const blockSize = 1 << s;
+
+                for (let b = 0; b < N; b += blockSize) {
+                    for (let k = 0; k < halfBlock; k++) {
+                        const topIdx = b + k;
+                        const botIdx = b + k + halfBlock;
+                        
+                        const W = twiddle(k * (N / blockSize), N);
+                        const topVal = current[topIdx];
+                        const botVal = current[botIdx];
+
+                        const t = botVal.mul(W);
+                        next[topIdx] = topVal.add(t);
+                        next[botIdx] = topVal.sub(t);
+                    }
+                }
+                stageData.push([...next]);
+                current = next;
+            }
+        }
+        precomputeFFT();
+
+        // SVG Rendering Logic
+        const svg = document.getElementById('fft-svg');
+        let currentStep = 0;
+        let isPlaying = false;
+        let playInterval = null;
+
+        function renderGraph() {
+            svg.innerHTML = '';
+            const rect = svg.parentElement.getBoundingClientRect();
+            
+            // Allow horizontal stretching on phone displays
+            const minWidth = 650;
+            const actualWidth = Math.max(minWidth, rect.width);
+            const actualHeight = rect.height;
+
+            svg.setAttribute("width", actualWidth);
+            svg.setAttribute("height", actualHeight);
+
+            const padX = 75;
+            const padY = 32;
+            const width = actualWidth - (padX * 2);
+            const height = actualHeight - (padY * 2);
+
+            const stageGap = width / STAGES;
+            const nodeGap = height / (N - 1);
+
+            const coords = [];
+            for (let s = 0; s <= STAGES; s++) {
+                coords[s] = [];
+                for (let i = 0; i < N; i++) {
+                    coords[s][i] = {
+                        x: padX + s * stageGap,
+                        y: padY + i * nodeGap
+                    };
+                }
+            }
+
+            // Butterflies (Edges)
+            for (let s = 1; s <= STAGES; s++) {
+                const halfBlock = 1 << (s - 1);
+                const blockSize = 1 << s;
+
+                for (let b = 0; b < N; b += blockSize) {
+                    for (let k = 0; k < halfBlock; k++) {
+                        const top = b + k;
+                        const bot = b + k + halfBlock;
+
+                        const pTopPrev = coords[s - 1][top];
+                        const pBotPrev = coords[s - 1][bot];
+                        const pTopCurr = coords[s][top];
+                        const pBotCurr = coords[s][bot];
+
+                        const isActive = currentStep >= s;
+
+                        drawEdge(pTopPrev, pTopCurr, isActive);
+                        drawEdge(pTopPrev, pBotCurr, isActive);
+                        drawEdge(pBotPrev, pTopCurr, isActive);
+                        drawEdge(pBotPrev, pBotCurr, isActive, true);
+
+                        // Twiddle factor text placement
+                        const twIndex = k * (N / blockSize);
+                        const twLabel = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                        twLabel.setAttribute("x", pBotPrev.x + 14);
+                        twLabel.setAttribute("y", pBotPrev.y - 8);
+                        twLabel.setAttribute("class", "twiddle-text");
+                        twLabel.textContent = `W₈^${twIndex}`;
+                        svg.appendChild(twLabel);
+                    }
+                }
+            }
+
+            // Nodes & Boundary Labels
+            for (let s = 0; s <= STAGES; s++) {
+                for (let i = 0; i < N; i++) {
+                    const pt = coords[s][i];
+                    
+                    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                    circle.setAttribute("cx", pt.x);
+                    circle.setAttribute("cy", pt.y);
+                    circle.setAttribute("r", 7.5);
+                    circle.setAttribute("class", `node ${s <= currentStep ? 'active' : ''}`);
+                    svg.appendChild(circle);
+
+                    // Leftmost Inputs
+                    if (s === 0) {
+                        const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                        text.setAttribute("x", pt.x - 16);
+                        text.setAttribute("y", pt.y);
+                        text.setAttribute("class", "label");
+                        text.setAttribute("text-anchor", "end");
+                        text.textContent = `x[${bitReversal[i]}]`;
+                        svg.appendChild(text);
+                    }
+
+                    // Rightmost DFT outputs
+                    if (s === STAGES) {
+                        const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                        text.setAttribute("x", pt.x + 16);
+                        text.setAttribute("y", pt.y);
+                        text.setAttribute("class", "label");
+                        text.setAttribute("text-anchor", "start");
+                        text.textContent = `X[${i}]`;
+                        svg.appendChild(text);
+                    }
+                }
+            }
+
+            updateDashboard();
+        }
+
+        function drawEdge(p1, p2, isActive, isNeg = false) {
+            const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            line.setAttribute("x1", p1.x);
+            line.setAttribute("y1", p1.y);
+            line.setAttribute("x2", p2.x);
+            line.setAttribute("y2", p2.y);
+            line.setAttribute("class", `edge ${isActive ? 'active' : ''} ${isNeg ? 'neg' : ''}`);
+            svg.appendChild(line);
+        }
+
+        function updateDashboard() {
+            const title = document.getElementById("stage-title");
+            const desc = document.getElementById("stage-desc");
+            const container = document.getElementById("values-container");
+
+            title.innerText = `Stage ${currentStep} of ${STAGES}`;
+
+            if (currentStep === 0) {
+                desc.innerText = "Bit-reversal indexing: inputs ordered for Decimation-In-Time execution.";
+            } else if (currentStep === STAGES) {
+                desc.innerText = "FFT Complete: Final frequency domain spectrum bins X[0] to X[7].";
+            } else {
+                desc.innerText = `Stage ${currentStep}: 2-point / 4-point butterflies combining sub-DFTs using twiddle factors.`;
+            }
+
+            container.innerHTML = "";
+            stageData[currentStep].forEach((v, idx) => {
+                const item = document.createElement("div");
+                const prefix = currentStep === STAGES ? `X[${idx}]` : `s${currentStep}[${idx}]`;
+                item.innerText = `${prefix}: ${v.toString()}`;
+                container.appendChild(item);
+            });
+        }
+
+        function setStep(step) {
+            currentStep = Math.max(0, Math.min(STAGES, step));
+            renderGraph();
+        }
+
+        document.getElementById('btn-next').addEventListener('click', () => {
+            if (currentStep < STAGES) setStep(currentStep + 1);
+        });
+
+        document.getElementById('btn-prev').addEventListener('click', () => {
+            if (currentStep > 0) setStep(currentStep - 1);
+        });
+
+        document.getElementById('btn-reset').addEventListener('click', () => {
+            pauseAnimation();
+            setStep(0);
+        });
+
+        const playBtn = document.getElementById('btn-play');
+        playBtn.addEventListener('click', () => {
+            if (isPlaying) {
+                pauseAnimation();
+            } else {
+                startAnimation();
+            }
+        });
+
+        function startAnimation() {
+            isPlaying = true;
+            playBtn.innerText = "Pause";
+            playBtn.classList.add("playing");
+
+            if (currentStep >= STAGES) currentStep = 0;
+            renderGraph();
+
+            playInterval = setInterval(() => {
+                if (currentStep < STAGES) {
+                    setStep(currentStep + 1);
+                } else {
+                    pauseAnimation();
+                }
+            }, 1200);
+        }
+
+        function pauseAnimation() {
+            isPlaying = false;
+            playBtn.innerText = "Play";
+            playBtn.classList.remove("playing");
+            clearInterval(playInterval);
+        }
+
+        window.addEventListener('resize', renderGraph);
+        window.addEventListener('orientationchange', renderGraph);
+        renderGraph();
+    </script>
+</body>
+</html>
